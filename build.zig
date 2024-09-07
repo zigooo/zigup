@@ -74,7 +74,7 @@ pub fn build(b: *std.Build) !void {
     ci_step.dependOn(test_step);
     ci_step.dependOn(unzip_step);
     ci_step.dependOn(zip_step);
-    try ci(b, ci_step, test_step, host_zip_exe);
+    try ci(.{ .b = b, .ci_step = ci_step, .test_step = test_step, .host_zip_exe = host_zip_exe });
 }
 
 const addZigupExeReq = struct {
@@ -117,12 +117,14 @@ fn addZigupExe(in: addZigupExeReq) *std.Build.Step.Compile {
     return exe;
 }
 
-fn ci(
+const ciInput = struct {
     b: *std.Build,
     ci_step: *std.Build.Step,
     test_step: *std.Build.Step,
     host_zip_exe: *std.Build.Step.Compile,
-) !void {
+};
+
+fn ci(in: ciInput) !void {
     const ci_targets = [_][]const u8{
         "x86_64-linux",
         "x86_64-macos",
@@ -135,40 +137,40 @@ fn ci(
         "powerpc64le-linux",
     };
 
-    const make_archive_step = b.step("archive", "Create CI archives");
-    ci_step.dependOn(make_archive_step);
+    const make_archive_step = in.b.step("archive", "Create CI archives");
+    in.ci_step.dependOn(make_archive_step);
 
-    var previous_test_step = test_step;
+    var previous_test_step = in.test_step;
 
     for (ci_targets) |ci_target_str| {
-        const target = b.resolveTargetQuery(try std.Target.Query.parse(
+        const target = in.b.resolveTargetQuery(try std.Target.Query.parse(
             .{ .arch_os_abi = ci_target_str },
         ));
         const optimize: std.builtin.OptimizeMode =
             // Compile in ReleaseSafe on Windows for faster extraction
             if (target.result.os.tag == .windows) .ReleaseSafe else .Debug;
-        const zigup_exe = addZigupExe(.{ .b = b, .target = target, .optimize = optimize });
-        const zigup_exe_install = b.addInstallArtifact(zigup_exe, .{
+        const zigup_exe = addZigupExe(.{ .b = in.b, .target = target, .optimize = optimize });
+        const zigup_exe_install = in.b.addInstallArtifact(zigup_exe, .{
             .dest_dir = .{ .override = .{ .custom = ci_target_str } },
         });
-        ci_step.dependOn(&zigup_exe_install.step);
+        in.ci_step.dependOn(&zigup_exe_install.step);
 
-        const test_exe = b.addExecutable(.{
-            .name = b.fmt("test-{s}", .{ci_target_str}),
-            .root_source_file = b.path("test.zig"),
+        const test_exe = in.b.addExecutable(.{
+            .name = in.b.fmt("test-{s}", .{ci_target_str}),
+            .root_source_file = in.b.path("test.zig"),
             .target = target,
             .optimize = optimize,
         });
-        const run_cmd = b.addRunArtifact(test_exe);
+        const run_cmd = in.b.addRunArtifact(test_exe);
         run_cmd.addArtifactArg(zigup_exe);
-        run_cmd.addDirectoryArg(b.path(b.fmt("scratch/{s}", .{ci_target_str})));
+        run_cmd.addDirectoryArg(in.b.path(in.b.fmt("scratch/{s}", .{ci_target_str})));
 
         // This doesn't seem to be working, so I've added a pre-check below
         run_cmd.failing_to_execute_foreign_is_an_error = false;
         const os_compatible = (builtin.os.tag == target.result.os.tag);
         const arch_compatible = (builtin.cpu.arch == target.result.cpu.arch);
         if (os_compatible and arch_compatible) {
-            ci_step.dependOn(&run_cmd.step);
+            in.ci_step.dependOn(&run_cmd.step);
 
             // prevent tests from running at the same time so their output
             // doesn't mangle each other.
@@ -177,51 +179,62 @@ fn ci(
         }
 
         if (builtin.os.tag == .linux) {
-            make_archive_step.dependOn(makeCiArchiveStep(b, ci_target_str, target.result, zigup_exe_install, host_zip_exe));
+            make_archive_step.dependOn(makeCiArchiveStep(.{
+                .b = in.b,
+                .ci_target_str = ci_target_str,
+                .result = target.result,
+                .zigup_exe_install = zigup_exe_install,
+                .host_zip_exe = in.host_zip_exe,
+            }));
         }
     }
 }
 
-fn makeCiArchiveStep(
+const makeCiArchiveStepInput = struct {
     b: *std.Build,
     ci_target_str: []const u8,
     target: std.Target,
     exe_install: *std.Build.Step.InstallArtifact,
     host_zip_exe: *std.Build.Step.Compile,
-) *std.Build.Step {
-    const install_path = b.getInstallPath(.prefix, ".");
+};
 
-    if (target.os.tag == .windows) {
-        const out_zip_file = b.pathJoin(&.{
+fn makeCiArchiveStep(in: makeCiArchiveStepInput) *std.Build.Step {
+    const install_path = in.b.getInstallPath(.prefix, ".");
+
+    if (in.target.os.tag == .windows) {
+        const out_zip_file = in.b.pathJoin(&.{
             install_path,
-            b.fmt("zigup-{s}.zip", .{ci_target_str}),
+            in.b.fmt("zigup-{s}.zip", .{in.ci_target_str}),
         });
-        const zip = b.addRunArtifact(host_zip_exe);
+        const zip = in.b.addRunArtifact(in.host_zip_exe);
         zip.addArg(out_zip_file);
         zip.addArg("zigup.exe");
         zip.addArg("zigup.pdb");
-        zip.cwd = .{ .cwd_relative = b.getInstallPath(
-            exe_install.dest_dir.?,
+        zip.cwd = .{ .cwd_relative = in.b.getInstallPath(
+            in.exe_install.dest_dir.?,
             ".",
         ) };
-        zip.step.dependOn(&exe_install.step);
+        zip.step.dependOn(&in.exe_install.step);
         return &zip.step;
     }
 
-    const targz = b.pathJoin(&.{
+    const targz = in.b.pathJoin(&.{
         install_path,
-        b.fmt("zigup-{s}.tar.gz", .{ci_target_str}),
+        in.b.fmt("zigup-{s}.tar.gz", .{in.ci_target_str}),
     });
-    const tar = b.addSystemCommand(&.{
+
+    const tar = in.b.addSystemCommand(&.{
         "tar",
         "-czf",
         targz,
         "zigup",
     });
-    tar.cwd = .{ .cwd_relative = b.getInstallPath(
-        exe_install.dest_dir.?,
+
+    tar.cwd = .{ .cwd_relative = in.b.getInstallPath(
+        in.exe_install.dest_dir.?,
         ".",
     ) };
-    tar.step.dependOn(&exe_install.step);
+    tar.step.dependOn(&in.exe_install.step);
+
     return &tar.step;
 }
