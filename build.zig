@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
 
     const zigup_exe_native = blk: {
-        const exe = addZigupExe(b, target, optimize);
+        const exe = addZigupExe(.{ .b = b, .target = target, .optimize = optimize });
         b.installArtifact(exe);
         const run_cmd = b.addRunArtifact(exe);
         run_cmd.step.dependOn(b.getInstallStep());
@@ -77,34 +77,41 @@ pub fn build(b: *std.Build) !void {
     try ci(b, ci_step, test_step, host_zip_exe);
 }
 
-fn addZigupExe(
+const addZigupExeReq = struct {
+    // b test
     b: *std.Build,
+
+    // b test
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.Mode,
-) *std.Build.Step.Compile {
+
+    // b test
+    optimize: std.builtin.Mode = .Debug,
+};
+
+fn addZigupExe(in: addZigupExeReq) *std.Build.Step.Compile {
     const win32exelink_mod: ?*std.Build.Module = blk: {
-        if (target.result.os.tag == .windows) {
-            const exe = b.addExecutable(.{
+        if (in.target.result.os.tag == .windows) {
+            const exe = in.b.addExecutable(.{
                 .name = "win32exelink",
-                .root_source_file = b.path("win32exelink.zig"),
-                .target = target,
-                .optimize = optimize,
+                .root_source_file = in.b.path("win32exelink.zig"),
+                .target = in.target,
+                .optimize = in.optimize,
             });
-            break :blk b.createModule(.{
+            break :blk in.b.createModule(.{
                 .root_source_file = exe.getEmittedBin(),
             });
         }
         break :blk null;
     };
 
-    const exe = b.addExecutable(.{
+    const exe = in.b.addExecutable(.{
         .name = "zigup",
-        .root_source_file = b.path("zigup.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_source_file = in.b.path("zigup.zig"),
+        .target = in.target,
+        .optimize = in.optimize,
     });
 
-    if (target.result.os.tag == .windows) {
+    if (in.target.result.os.tag == .windows) {
         exe.root_module.addImport("win32exelink", win32exelink_mod.?);
     }
     return exe;
@@ -140,7 +147,7 @@ fn ci(
         const optimize: std.builtin.OptimizeMode =
             // Compile in ReleaseSafe on Windows for faster extraction
             if (target.result.os.tag == .windows) .ReleaseSafe else .Debug;
-        const zigup_exe = addZigupExe(b, target, optimize);
+        const zigup_exe = addZigupExe(.{ .b = b, .target = target, .optimize = optimize });
         const zigup_exe_install = b.addInstallArtifact(zigup_exe, .{
             .dest_dir = .{ .override = .{ .custom = ci_target_str } },
         });
