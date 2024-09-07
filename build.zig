@@ -65,7 +65,7 @@ pub fn build(b: *std.Build) !void {
 
     const host_zip_exe = b.addExecutable(.{
         .name = "zip",
-        .root_source_file = b.path("zip.zig"),
+        .root_source_file = b.path("src/zip_main.zig"),
         .target = b.host,
     });
 
@@ -93,7 +93,7 @@ fn addZigupExe(in: addZigupExeReq) *std.Build.Step.Compile {
         if (in.target.result.os.tag == .windows) {
             const exe = in.b.addExecutable(.{
                 .name = "win32exelink",
-                .root_source_file = in.b.path("win32exelink.zig"),
+                .root_source_file = in.b.path("src/win32exelink.zig"),
                 .target = in.target,
                 .optimize = in.optimize,
             });
@@ -106,7 +106,7 @@ fn addZigupExe(in: addZigupExeReq) *std.Build.Step.Compile {
 
     const exe = in.b.addExecutable(.{
         .name = "zigup",
-        .root_source_file = in.b.path("zigup.zig"),
+        .root_source_file = in.b.path("src/zigup_main.zig"),
         .target = in.target,
         .optimize = in.optimize,
     });
