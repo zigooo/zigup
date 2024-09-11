@@ -19,6 +19,7 @@ var windows_args_arena = if (builtin.os.tag == .windows)
     std.heap.ArenaAllocator.init(std.heap.page_allocator)
 else
     struct {}{};
+
 pub fn cmdlineArgs() [][*:0]u8 {
     if (builtin.os.tag == .windows) {
         const slices = std.process.argsAlloc(windows_args_arena.allocator()) catch |err| switch (err) {

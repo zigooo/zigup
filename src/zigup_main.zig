@@ -23,6 +23,7 @@ const os = switch (builtin.os.tag) {
     .macos => "macos",
     else => @compileError("Unsupported OS"),
 };
+
 const url_platform = os ++ "-" ++ arch;
 const json_platform = arch ++ "-" ++ os;
 const archive_ext = if (builtin.os.tag == .windows) "zip" else "tar.xz";
