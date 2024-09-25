@@ -27,6 +27,7 @@ pub fn deleteTree(dir: std.fs.Dir, sub_path: []const u8) !void {
         }
     }
 }
+
 pub fn deleteTreeAbsolute(dir_absolute: []const u8) !void {
     if (builtin.os.tag != .windows) {
         return std.fs.deleteTreeAbsolute(dir_absolute);
